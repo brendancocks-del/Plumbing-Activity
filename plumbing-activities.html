@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Plumbing Systems: Drag & Drop Challenge</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        /* Custom styles for the drag-and-drop activity */
+        body {
+            font-family: 'Inter', sans-serif;
+            -webkit-touch-callout: none; /* iOS Safari */
+            -webkit-user-select: none; /* Safari */
+            -khtml-user-select: none; /* Konqueror HTML */
+            -moz-user-select: none; /* Old versions of Firefox */
+            -ms-user-select: none; /* Internet Explorer/Edge */
+            user-select: none; /* Non-prefixed version, currently supported by Chrome, Edge, Opera and Firefox */
+        }
+        .component {
+            cursor: grab;
+            transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .component.dragging {
+            cursor: grabbing;
+            opacity: 0.5;
+            transform: scale(1.05);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+        .drop-zone {
+            border: 2px dashed #cbd5e1;
+            transition: background-color 0.2s ease-in-out, border-color 0.2s ease-in-out;
+            min-height: 80px;
+        }
+        .drop-zone.drag-over {
+            background-color: #e0f2fe;
+            border-color: #38bdf8;
+        }
+        .component.correct {
+            background-color: #dcfce7 !important;
+            border-color: #22c55e !important;
+            cursor: not-allowed;
+        }
+        .feedback-toast {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 12px 24px;
+            border-radius: 8px;
+            color: white;
+            opacity: 0;
+            transition: opacity 0.3s, transform 0.3s;
+            z-index: 1001;
+        }
+        .feedback-toast.show {
+            opacity: 1;
+            transform: translate(-50%, -10px);
+        }
+        .feedback-toast.success { background-color: #22c55e; }
+        .feedback-toast.error { background-color: #ef4444; }
+        .system-diagram { display: none; }
+        .system-diagram.active { display: block; }
+        .tab-btn { transition: background-color 0.2s, color 0.2s; }
+        .tab-btn.active { background-color: #0284c7; color: white; }
+        
+        /* Modal Styles */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.3s, visibility 0.3s;
+        }
+        .modal-overlay.show {
+            opacity: 1;
+            visibility: visible;
+        }
+        .modal-content {
+            background: white;
+            padding: 2rem;
+            border-radius: 0.75rem;
+            max-width: 90%;
+            width: 600px;
+            max-height: 80vh;
+            overflow-y: auto;
+            transform: scale(0.95);
+            transition: transform 0.3s;
+        }
+        .modal-overlay.show .modal-content {
+            transform: scale(1);
+        }
+        
+        /* Loader animation */
+        .loader {
+            width: 48px;
+            height: 48px;
+            border: 5px solid #FFF;
+            border-bottom-color: #0284c7;
+            border-radius: 50%;
+            display: inline-block;
+            box-sizing: border-box;
+            animation: rotation 1s linear infinite;
+            margin: 2rem auto;
+            display: block;
+        }
+        @keyframes rotation {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-slate-100 text-slate-800">
+
+    <div class="container mx-auto p-4 md:p-8 max-w-7xl">
+        <header class="text-center mb-8">
+            <h1 class="text-3xl md:text-4xl font-bold text-slate-900">Plumbing Systems Challenge</h1>
+            <p class="text-slate-600 mt-2">Drag components into the correct system, or click the icons for an AI explanation.</p>
+        </header>
+
+        <main class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <aside class="lg:col-span-1 bg-white p-6 rounded-xl shadow-lg h-fit">
+                <h2 class="text-2xl font-semibold mb-4 border-b pb-2">Component Bank</h2>
+                <div id="component-bank" class="space-y-3"></div>
+                <button id="reset-btn" class="w-full mt-6 bg-rose-500 text-white font-bold py-2 px-4 rounded-lg hover:bg-rose-600 transition-colors">Reset Activity</button>
+            </aside>
+
+            <section class="lg:col-span-2 bg-white p-6 rounded-xl shadow-lg">
+                <h2 class="text-2xl font-semibold mb-4">System Diagrams</h2>
+                <div id="tabs" class="flex flex-wrap border-b border-slate-200 mb-6 gap-2"></div>
+                <div id="diagrams-container"></div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Feedback Toast -->
+    <div id="feedback-toast" class="feedback-toast"></div>
+
+    <!-- AI Explanation Modal -->
+    <div id="ai-modal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="flex justify-between items-center mb-4">
+                <h3 id="modal-title" class="text-2xl font-bold">Loading...</h3>
+                <button id="modal-close-btn" class="text-2xl font-bold text-slate-500 hover:text-slate-800">&times;</button>
+            </div>
+            <div id="modal-body">
+                <div class="loader"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- DATA ---
+        const plumbingData = {
+            systems: [
+                { id: 's1', name: 'Conventional Indirect System' },
+                { id: 's2', name: 'Solar Thermal System' },
+                { id: 's3', name: 'Air Source Heat Pump System' }
+            ],
+            components: [
+                { id: 'c1', name: 'Cold Water Storage Cistern (CWSC)', systemId: 's1' },
+                { id: 'c2', name: 'Feed and Expansion Cistern', systemId: 's1' },
+                { id: 'c3', name: 'Indirect Hot Water Cylinder', systemId: 's1' },
+                { id: 'c4', name: 'Primary Flow & Return', systemId: 's1' },
+                { id: 'c5', name: 'Boiler', systemId: 's1' },
+                { id: 'c6', name: 'Solar Collector Panels', systemId: 's2' },
+                { id: 'c7', name: 'Twin Coil Cylinder', systemId: 's2' },
+                { id: 'c8', name: 'Pump Station & Controller', systemId: 's2' },
+                { id: 'c9', name: 'Expansion Vessel (Solar)', systemId: 's2' },
+                { id: 'c10', name: 'Glycol Fluid Circuit', systemId: 's2' },
+                { id: 'c11', name: 'ASHP Outdoor Unit', systemId: 's3' },
+                { id: 'c12', name: 'Buffer Tank / Volumiser', systemId: 's3' },
+                { id: 'c13', name: 'Weather Compensating Controller', systemId: 's3' },
+                { id: 'c14', name: 'Underfloor Heating Manifold', systemId: 's3' },
+                { id: 'c15', name: 'Heat Pump Specific Cylinder', systemId: 's3' },
+            ]
+        };
+
+        // --- DOM ELEMENT REFERENCES ---
+        const componentBank = document.getElementById('component-bank');
+        const diagramsContainer = document.getElementById('diagrams-container');
+        const tabsContainer = document.getElementById('tabs');
+        const resetButton = document.getElementById('reset-btn');
+        const feedbackToast = document.getElementById('feedback-toast');
+        const aiModal = document.getElementById('ai-modal');
+        const modalTitle = document.getElementById('modal-title');
+        const modalBody = document.getElementById('modal-body');
+        const modalCloseBtn = document.getElementById('modal-close-btn');
+
+        let draggedComponent = null;
+        let toastTimeout;
+        
+        // --- GEMINI API CALL FUNCTION ---
+        /**
+         * Calls the Gemini API to generate text based on a prompt.
+         * Implements exponential backoff for retries.
+         * @param {string} prompt The prompt to send to the model.
+         * @returns {Promise<string>} The generated text.
+         */
+        async function callGemini(prompt) {
+            const apiKey = ""; // API key is handled by the environment
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+            
+            const payload = {
+                contents: [{ role: "user", parts: [{ text: prompt }] }],
+            };
+            
+            let response;
+            let retries = 3;
+            let delay = 1000;
+
+            while (retries > 0) {
+                try {
+                    response = await fetch(apiUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (response.ok) {
+                        const result = await response.json();
+                        if (result.candidates && result.candidates.length > 0 &&
+                            result.candidates[0].content && result.candidates[0].content.parts &&
+                            result.candidates[0].content.parts.length > 0) {
+                            // Simple markdown to HTML conversion for lists and bolding
+                            let text = result.candidates[0].content.parts[0].text;
+                            text = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>'); // Bold
+                            text = text.replace(/\* (.*?)(?=\n\*|\n\n|$)/g, '<li>$1</li>'); // List items
+                            text = text.replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>'); // Wrap lists
+                            text = text.replace(/\n/g, '<br>');
+                            return text;
+                        }
+                    }
+                } catch (error) {
+                    console.error("API call failed:", error);
+                }
+                
+                retries--;
+                if (retries > 0) {
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                    delay *= 2;
+                }
+            }
+
+            return "Sorry, I couldn't get an explanation at this time. Please try again later.";
+        }
+
+
+        // --- UI FUNCTIONS ---
+
+        function showModal(title) {
+            modalTitle.textContent = title;
+            modalBody.innerHTML = '<div class="loader"></div>';
+            aiModal.classList.add('show');
+        }
+
+        function hideModal() {
+            aiModal.classList.remove('show');
+        }
+
+        function shuffleArray(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+        }
+        
+        function showFeedback(message, type) {
+            clearTimeout(toastTimeout);
+            feedbackToast.textContent = message;
+            feedbackToast.className = `feedback-toast ${type}`;
+            void feedbackToast.offsetWidth;
+            feedbackToast.classList.add('show');
+            toastTimeout = setTimeout(() => feedbackToast.classList.remove('show'), 2000);
+        }
+
+        function initializeActivity() {
+            componentBank.innerHTML = '';
+            diagramsContainer.innerHTML = '';
+            tabsContainer.innerHTML = '';
+
+            const shuffledComponents = [...plumbingData.components];
+            shuffleArray(shuffledComponents);
+
+            shuffledComponents.forEach(comp => {
+                const compEl = document.createElement('div');
+                compEl.id = comp.id;
+                compEl.dataset.systemId = comp.systemId;
+                compEl.className = 'component bg-slate-200 p-3 rounded-lg border border-slate-300';
+                compEl.draggable = true;
+
+                const nameSpan = document.createElement('span');
+                nameSpan.textContent = comp.name;
+                compEl.appendChild(nameSpan);
+
+                const inspectBtn = document.createElement('button');
+                inspectBtn.innerHTML = '&#x24D8;'; // Circled i
+                inspectBtn.className = 'info-btn text-lg text-sky-600 hover:text-sky-800';
+                inspectBtn.title = `✨ Inspect ${comp.name}`;
+                inspectBtn.dataset.name = comp.name;
+                inspectBtn.addEventListener('click', handleInspectComponent);
+                compEl.appendChild(inspectBtn);
+
+                componentBank.appendChild(compEl);
+            });
+
+            plumbingData.systems.forEach((system, index) => {
+                const tabWrapper = document.createElement('div');
+                tabWrapper.className = 'flex items-center';
+
+                const tabBtn = document.createElement('button');
+                tabBtn.dataset.target = system.id;
+                tabBtn.className = 'tab-btn py-2 px-4 -mb-px border border-b-0 rounded-t-lg';
+                tabBtn.textContent = system.name;
+                if (index === 0) tabBtn.classList.add('active');
+                tabWrapper.appendChild(tabBtn);
+
+                const explainBtn = document.createElement('button');
+                explainBtn.innerHTML = '✨';
+                explainBtn.className = 'explain-btn text-lg ml-2 text-amber-500 hover:text-amber-700';
+                explainBtn.title = `✨ Explain ${system.name}`;
+                explainBtn.dataset.name = system.name;
+                explainBtn.addEventListener('click', handleExplainSystem);
+                tabWrapper.appendChild(explainBtn);
+
+                tabsContainer.appendChild(tabWrapper);
+
+                const diagramEl = document.createElement('div');
+                diagramEl.id = system.id;
+                diagramEl.className = 'system-diagram p-4 border rounded-b-lg rounded-r-lg';
+                if (index === 0) diagramEl.classList.add('active');
+                
+                const dropZone = document.createElement('div');
+                dropZone.className = 'drop-zone p-4 rounded-lg flex flex-wrap justify-center items-center gap-3';
+                dropZone.dataset.systemId = system.id;
+                diagramEl.appendChild(dropZone);
+
+                diagramsContainer.appendChild(diagramEl);
+            });
+
+            addEventListeners();
+        }
+
+        // --- EVENT HANDLERS ---
+        
+        async function handleExplainSystem(e) {
+            const systemName = e.currentTarget.dataset.name;
+            showModal(`Explaining: ${systemName}`);
+            const prompt = `Explain a "${systemName}" plumbing system in simple terms for a Level 3 plumbing student. Describe its main purpose and how the key components work together. Use bullet points for the main components.`;
+            const explanation = await callGemini(prompt);
+            modalBody.innerHTML = `<div class="prose max-w-none">${explanation}</div>`;
+        }
+
+        async function handleInspectComponent(e) {
+            e.stopPropagation(); // Prevent drag from starting
+            const componentName = e.currentTarget.dataset.name;
+            showModal(`Inspecting: ${componentName}`);
+            const prompt = `Describe the function of a "${componentName}" in a plumbing system. What are common issues or maintenance tips for it? Explain for a trainee plumber in the UK.`;
+            const explanation = await callGemini(prompt);
+            modalBody.innerHTML = `<div class="prose max-w-none">${explanation}</div>`;
+        }
+
+        function addEventListeners() {
+            document.querySelectorAll('.component').forEach(comp => {
+                comp.addEventListener('dragstart', e => {
+                    if (comp.classList.contains('correct')) return e.preventDefault();
+                    draggedComponent = comp;
+                    setTimeout(() => comp.classList.add('dragging'), 0);
+                });
+                comp.addEventListener('dragend', () => {
+                    draggedComponent.classList.remove('dragging');
+                    draggedComponent = null;
+                });
+            });
+
+            document.querySelectorAll('.drop-zone').forEach(zone => {
+                zone.addEventListener('dragover', e => {
+                    e.preventDefault();
+                    zone.classList.add('drag-over');
+                });
+                zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
+                zone.addEventListener('drop', e => {
+                    e.preventDefault();
+                    zone.classList.remove('drag-over');
+                    if (!draggedComponent) return;
+
+                    if (zone.dataset.systemId === draggedComponent.dataset.systemId) {
+                        zone.appendChild(draggedComponent);
+                        draggedComponent.classList.add('correct');
+                        draggedComponent.draggable = false;
+                        showFeedback('Correct!', 'success');
+                        checkCompletion();
+                    } else {
+                        showFeedback('Incorrect system. Try again!', 'error');
+                    }
+                });
+            });
+
+            document.querySelectorAll('.tab-btn').forEach(tab => {
+                tab.addEventListener('click', () => {
+                    document.querySelectorAll('.tab-btn').forEach(t => t.classList.remove('active'));
+                    document.querySelectorAll('.system-diagram').forEach(d => d.classList.remove('active'));
+                    tab.classList.add('active');
+                    document.getElementById(tab.dataset.target).classList.add('active');
+                });
+            });
+
+            resetButton.addEventListener('click', initializeActivity);
+            modalCloseBtn.addEventListener('click', hideModal);
+            aiModal.addEventListener('click', (e) => {
+                if (e.target === aiModal) hideModal();
+            });
+        }
+        
+        function checkCompletion() {
+            if (document.querySelectorAll('.component').length === document.querySelectorAll('.component.correct').length) {
+                setTimeout(() => showFeedback('Congratulations! All components placed correctly.', 'success'), 500);
+            }
+        }
+
+        // --- INITIALIZATION ---
+        document.addEventListener('DOMContentLoaded', initializeActivity);
+    </script>
+</body>
+</html>
